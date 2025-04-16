@@ -17,14 +17,13 @@ async function startBot() {
         printQRInTerminal: false,
     });
 
-    let currentQR = null; // Guardamos el QR para mostrarlo luego
-
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            currentQR = qr; // Guardamos el QR actual en memoria
-            console.log("📷 QR generado. Usá el comando !qr para verlo.");
+            latestQR = qr;
+            console.log("📲 Escaneá este código QR desde WhatsApp:");
+            qrcode.generate(qr, { small: true });
         }
 
         if (connection === "close") {
@@ -48,7 +47,6 @@ async function startBot() {
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
         if (type !== "notify") return;
         const msg = messages[0];
-
         if (!msg.message || !msg.key.remoteJid.endsWith("@g.us")) return;
 
         const from = msg.key.remoteJid;
@@ -59,20 +57,10 @@ async function startBot() {
             "";
 
         const metadata = await sock.groupMetadata(from);
-        const isAdmin = metadata.participants.find(p => p.id === sender)?.admin;
+        const isAdmin = metadata.participants.find((p) => p.id === sender)?.admin;
 
         const reply = (text) =>
             sock.sendMessage(from, { text }, { quoted: msg });
-
-        // Mostrar QR manualmente desde el grupo
-        if (body === "!qr" && isAdmin) {
-            if (currentQR) {
-                qrcode.generate(currentQR, { small: true });
-                reply("📷 QR generado en la consola.");
-            } else {
-                reply("✅ Ya estás conectado o aún no hay QR disponible.");
-            }
-        }
 
         // !cerrar
         if (body === "!cerrar" && isAdmin) {
@@ -80,43 +68,33 @@ async function startBot() {
             reply("✅ Grupo cerrado solo para administradores.");
         }
 
-        // kick
         if (body.startsWith("kick") && isAdmin) {
             const mentionedJid =
                 msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-
             if (!mentionedJid) {
-                await sock.sendMessage(from, {
-                    text: "Debes mencionar al usuario que deseas expulsar.",
-                });
+                reply("❌ Debes mencionar al usuario que deseas expulsar.");
                 return;
             }
-
             try {
                 await sock.groupParticipantsUpdate(from, [mentionedJid], "remove");
                 reply("✅ Usuario expulsado correctamente.");
             } catch (error) {
-                console.error("Error al expulsar usuario:", error);
-                await sock.sendMessage(from, {
-                    text: "No se pudo expulsar al usuario.",
-                });
+                console.error("Error al expulsar:", error);
+                reply("❌ No se pudo expulsar al usuario.");
             }
         }
 
-        // !abrir
         if (body === "!abrir" && isAdmin) {
             await sock.groupSettingUpdate(from, "not_announcement");
             reply("✅ Grupo abierto para todos los miembros.");
         }
 
-        // !todos
         if (body === "!todos" && isAdmin) {
             const waveEmoji = "🩸";
             const bloodEmoji = "🩸";
             const titulo = `${bloodEmoji} : *_LPZ SCRIMS_*`;
             const separador = "━━━━━━━━━━━━━━";
             const etiquetas = metadata.participants.map((p) => {
-                const nombre = p?.notify || p?.name || "";
                 const numero = p.id.split("@")[0];
                 return `${waveEmoji} @${numero}`;
             });
@@ -129,14 +107,12 @@ async function startBot() {
             });
         }
 
-        // !info
         if (body === "!info" && isAdmin) {
             reply(
                 `📌 Nombre: ${metadata.subject}\n👥 Participantes: ${metadata.participants.length}`,
             );
         }
 
-        // !ban
         if (body.startsWith("!ban") && isAdmin) {
             const mentioned =
                 msg.message.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -168,26 +144,21 @@ async function startBot() {
             }
         }
 
-        // !link
         if (body === "!link" && isAdmin) {
             const code = await sock.groupInviteCode(from);
             reply(`🔗 Enlace del grupo: https://chat.whatsapp.com/${code}`);
         }
 
-        // .n mensaje
         if (body.startsWith(".n ") && isAdmin) {
             const text = body.slice(3).trim();
             const mentions = metadata.participants.map((p) => p.id);
-
             await sock.sendMessage(from, {
                 text: `📢 ${text}`,
                 mentions,
             }, { quoted: msg });
-
             await sock.sendMessage(from, { delete: msg.key });
         }
 
-        // !adminson
         if (body === "!adminson") {
             const admins = metadata.participants.filter((p) => p.admin);
             const list = admins.map((a) => `@${a.id.split("@")[0]}`).join("\n");
@@ -199,9 +170,7 @@ async function startBot() {
     });
 }
 
-// Mantener el bot vivo (Render)
 const http = require("http");
 http.createServer((req, res) => res.end("Bot activo")).listen(3000);
 
-// Iniciar
 startBot();
