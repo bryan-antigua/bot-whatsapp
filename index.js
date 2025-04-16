@@ -159,6 +159,15 @@ async function startBot() {
             await sock.sendMessage(from, { delete: msg.key });
         }
 
+        if (body === "!d") {
+            const description = metadata.desc;
+            if (description) {
+                reply(`📝 *Descripción del grupo:*\n${description}`);
+            } else {
+                reply("⚠️ Este grupo no tiene una descripción.");
+            }
+        }
+
         if (body === "!adminson") {
             const admins = metadata.participants.filter((p) => p.admin);
             const list = admins.map((a) => `@${a.id.split("@")[0]}`).join("\n");
