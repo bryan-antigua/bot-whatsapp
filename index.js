@@ -199,7 +199,9 @@ async function startBot() {
     });
 }
 
+// Mantener el bot vivo (Render)
 const http = require("http");
 http.createServer((req, res) => res.end("Bot activo")).listen(3000);
 
+// Iniciar
 startBot();
