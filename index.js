@@ -8,7 +8,7 @@ const fs = require("fs");
 const qrcode = require("qrcode-terminal");
 
 async function startBot() {
-    const { state, saveState } = useSingleFileAuthState("./auth_info.json");
+    const { state, saveState } = useSingleFileAuthState("auth_info.json");
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false, // No mostrar QR automáticamente
