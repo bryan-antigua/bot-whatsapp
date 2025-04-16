@@ -168,7 +168,7 @@ async function startBot() {
             }
         }
 
-        if (body === "!adminson") {
+        if (body === "!admin") {
             const admins = metadata.participants.filter((p) => p.admin);
             const list = admins.map((a) => `@${a.id.split("@")[0]}`).join("\n");
             await sock.sendMessage(from, {
