@@ -1,23 +1,26 @@
 const {
     default: makeWASocket,
-    useSingleFileAuthState,
+    useMultiFileAuthState,
     DisconnectReason,
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const fs = require("fs");
 const qrcode = require("qrcode-terminal");
 
+let latestQR = null;
+
 async function startBot() {
-    const { state, saveState } = useSingleFileAuthState("auth_info.json");
+    const { state, saveCreds } = await useMultiFileAuthState("auth_info");
+
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // No mostrar QR automáticamente
+        printQRInTerminal: false,
     });
 
     let currentQR = null; // Guardamos el QR para mostrarlo luego
 
     sock.ev.on("connection.update", (update) => {
-        const { qr, connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
             currentQR = qr; // Guardamos el QR actual en memoria
@@ -27,12 +30,16 @@ async function startBot() {
         if (connection === "close") {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason === DisconnectReason.loggedOut) {
-                console.log("🔴 Sesión cerrada. Escanea de nuevo.");
+                console.log("🔴 Sesión cerrada. Escaneá nuevamente.");
                 startBot();
             } else {
                 console.log("⚠️ Desconectado. Reconectando...");
                 startBot();
             }
+        }
+
+        if (connection === "open") {
+            console.log("✅ Conectado correctamente a WhatsApp.");
         }
     });
 
@@ -57,7 +64,7 @@ async function startBot() {
         const reply = (text) =>
             sock.sendMessage(from, { text }, { quoted: msg });
 
-        // !qr — Mostrar el QR manualmente
+        // Mostrar QR manualmente desde el grupo
         if (body === "!qr" && isAdmin) {
             if (currentQR) {
                 qrcode.generate(currentQR, { small: true });
@@ -67,11 +74,13 @@ async function startBot() {
             }
         }
 
+        // !cerrar
         if (body === "!cerrar" && isAdmin) {
             await sock.groupSettingUpdate(from, "announcement");
             reply("✅ Grupo cerrado solo para administradores.");
         }
 
+        // kick
         if (body.startsWith("kick") && isAdmin) {
             const mentionedJid =
                 msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
@@ -85,9 +94,7 @@ async function startBot() {
 
             try {
                 await sock.groupParticipantsUpdate(from, [mentionedJid], "remove");
-                await sock.sendMessage(from, {
-                    text: "Usuario expulsado correctamente.",
-                });
+                reply("✅ Usuario expulsado correctamente.");
             } catch (error) {
                 console.error("Error al expulsar usuario:", error);
                 await sock.sendMessage(from, {
@@ -96,11 +103,13 @@ async function startBot() {
             }
         }
 
+        // !abrir
         if (body === "!abrir" && isAdmin) {
             await sock.groupSettingUpdate(from, "not_announcement");
             reply("✅ Grupo abierto para todos los miembros.");
         }
 
+        // !todos
         if (body === "!todos" && isAdmin) {
             const waveEmoji = "🩸";
             const bloodEmoji = "🩸";
@@ -109,8 +118,7 @@ async function startBot() {
             const etiquetas = metadata.participants.map((p) => {
                 const nombre = p?.notify || p?.name || "";
                 const numero = p.id.split("@")[0];
-                const display = nombre ? `@~${nombre}` : `@+${numero}`;
-                return `${waveEmoji} ${display}`;
+                return `${waveEmoji} @${numero}`;
             });
 
             const texto = `${titulo}\n${separador}\n\n*_ETIQUETAS:_*\n\n${etiquetas.join("\n")}`;
@@ -121,10 +129,14 @@ async function startBot() {
             });
         }
 
+        // !info
         if (body === "!info" && isAdmin) {
-            reply(`📌 Nombre: ${metadata.subject}\n👥 Participantes: ${metadata.participants.length}`);
+            reply(
+                `📌 Nombre: ${metadata.subject}\n👥 Participantes: ${metadata.participants.length}`,
+            );
         }
 
+        // !ban
         if (body.startsWith("!ban") && isAdmin) {
             const mentioned =
                 msg.message.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -156,29 +168,26 @@ async function startBot() {
             }
         }
 
+        // !link
         if (body === "!link" && isAdmin) {
             const code = await sock.groupInviteCode(from);
             reply(`🔗 Enlace del grupo: https://chat.whatsapp.com/${code}`);
         }
 
+        // .n mensaje
         if (body.startsWith(".n ") && isAdmin) {
             const text = body.slice(3).trim();
             const mentions = metadata.participants.map((p) => p.id);
 
-            await sock.sendMessage(
-                from,
-                {
-                    text: `📢 ${text}`,
-                    mentions: mentions,
-                },
-                { quoted: msg }
-            );
-
             await sock.sendMessage(from, {
-                delete: msg.key,
-            });
+                text: `📢 ${text}`,
+                mentions,
+            }, { quoted: msg });
+
+            await sock.sendMessage(from, { delete: msg.key });
         }
 
+        // !adminson
         if (body === "!adminson") {
             const admins = metadata.participants.filter((p) => p.admin);
             const list = admins.map((a) => `@${a.id.split("@")[0]}`).join("\n");
