@@ -6,6 +6,7 @@ const {
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const fs = require("fs");
+const qrcode = require("qrcode-terminal");
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_info");
@@ -17,6 +18,8 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false, // Desactivamos el QR interno
     });
+
+    let currentQR = null; // Guardamos el QR para mostrarlo luego
 
     sock.ev.on("connection.update", (update) => {
         const { qr } = update;
