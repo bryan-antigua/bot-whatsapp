@@ -1,3 +1,6 @@
+const { Client } = require('whatsapp-web.js');
+
+
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -25,6 +28,32 @@ async function startBot() {
             console.log("📲 Escaneá este código QR desde WhatsApp:");
             qrcode.generate(qr, { small: true });
         }
+
+        // client = tu instancia del bot
+client.on('message', async msg => {
+  if (msg.body === '!descripcion' || msg.body === '!descripción') {
+    const chat = await msg.getChat();
+
+    if (chat.isGroup) {
+      const groupMetadata = await chat.fetchMessages({ limit: 1 }); // fuerza la carga del grupo
+      const description = chat.description;
+
+      if (description) {
+        msg.reply(`📝 *Descripción del grupo:*\n${description}`);
+      } else {
+        msg.reply('⚠️ Este grupo no tiene descripción.');
+      }
+    } else {
+      msg.reply('❌ Este comando solo funciona en grupos.');
+    }
+  }
+});
+
+
+
+
+
+        
 
         if (connection === "close") {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
