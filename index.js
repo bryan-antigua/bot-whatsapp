@@ -159,7 +159,7 @@ async function startBot() {
             await sock.sendMessage(from, { delete: msg.key });
         }
 
-        if (body === "!d") {
+        if (body === "!d" && isAdmin) {
             const description = metadata.desc;
             if (description) {
                 reply(`📝 *Descripción del grupo:*\n${description}`);
