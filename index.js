@@ -1,41 +1,48 @@
 const {
     default: makeWASocket,
-    useMultiFileAuthState,
+    useSingleFileAuthState,
     DisconnectReason,
-    makeInMemoryStore,
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const fs = require("fs");
 const qrcode = require("qrcode-terminal");
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState("auth_info");
-    const makeWASocket = require("@whiskeysockets/baileys").default;
-    const qrcode = require("qrcode-terminal");
-    const { Client, LocalAuth } = require("whatsapp-web.js");
-
+    const { state, saveState } = useSingleFileAuthState("./auth_info.json");
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // Desactivamos el QR interno
+        printQRInTerminal: false, // No mostrar QR automáticamente
     });
 
     let currentQR = null; // Guardamos el QR para mostrarlo luego
 
     sock.ev.on("connection.update", (update) => {
-        const { qr } = update;
+        const { qr, connection, lastDisconnect } = update;
+
         if (qr) {
-            qrcode.generate(qr, { small: true }); // Mostramos QR en consola de forma compatible con Replit
+            currentQR = qr; // Guardamos el QR actual en memoria
+            console.log("📷 QR generado. Usá el comando !qr para verlo.");
         }
-        // ... lo demás se queda igual
+
+        if (connection === "close") {
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            if (reason === DisconnectReason.loggedOut) {
+                console.log("🔴 Sesión cerrada. Escanea de nuevo.");
+                startBot();
+            } else {
+                console.log("⚠️ Desconectado. Reconectando...");
+                startBot();
+            }
+        }
     });
 
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", saveState);
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
         if (type !== "notify") return;
         const msg = messages[0];
 
-        if (!msg.message || !msg.key.remoteJid.endsWith("@g.us")) return; // Solo grupos
+        if (!msg.message || !msg.key.remoteJid.endsWith("@g.us")) return;
 
         const from = msg.key.remoteJid;
         const sender = msg.key.participant || msg.key.remoteJid;
@@ -45,22 +52,29 @@ async function startBot() {
             "";
 
         const metadata = await sock.groupMetadata(from);
-        const isAdmin = metadata.participants.find(
-            (p) => p.id === sender,
-        )?.admin;
+        const isAdmin = metadata.participants.find(p => p.id === sender)?.admin;
 
         const reply = (text) =>
             sock.sendMessage(from, { text }, { quoted: msg });
 
-        // !cerrargrupo (solo admin)
+        // !qr — Mostrar el QR manualmente
+        if (body === "!qr" && isAdmin) {
+            if (currentQR) {
+                qrcode.generate(currentQR, { small: true });
+                reply("📷 QR generado en la consola.");
+            } else {
+                reply("✅ Ya estás conectado o aún no hay QR disponible.");
+            }
+        }
+
         if (body === "!cerrar" && isAdmin) {
             await sock.groupSettingUpdate(from, "announcement");
             reply("✅ Grupo cerrado solo para administradores.");
         }
 
-        if (body.startsWith("kick") && isAdmin && isBotAdmin) {
+        if (body.startsWith("kick") && isAdmin) {
             const mentionedJid =
-                m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+                msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
 
             if (!mentionedJid) {
                 await sock.sendMessage(from, {
@@ -70,11 +84,7 @@ async function startBot() {
             }
 
             try {
-                await sock.groupParticipantsUpdate(
-                    from,
-                    [mentionedJid],
-                    "remove",
-                );
+                await sock.groupParticipantsUpdate(from, [mentionedJid], "remove");
                 await sock.sendMessage(from, {
                     text: "Usuario expulsado correctamente.",
                 });
@@ -86,20 +96,18 @@ async function startBot() {
             }
         }
 
-        // !abrirgrupo (solo admin)
         if (body === "!abrir" && isAdmin) {
             await sock.groupSettingUpdate(from, "not_announcement");
             reply("✅ Grupo abierto para todos los miembros.");
         }
 
-        // !todos
         if (body === "!todos" && isAdmin) {
             const waveEmoji = "🩸";
             const bloodEmoji = "🩸";
             const titulo = `${bloodEmoji} : *_LPZ SCRIMS_*`;
             const separador = "━━━━━━━━━━━━━━";
             const etiquetas = metadata.participants.map((p) => {
-                const nombre = p?.notify || p?.name || ""; // nombre si está disponible
+                const nombre = p?.notify || p?.name || "";
                 const numero = p.id.split("@")[0];
                 const display = nombre ? `@~${nombre}` : `@+${numero}`;
                 return `${waveEmoji} ${display}`;
@@ -113,14 +121,10 @@ async function startBot() {
             });
         }
 
-        // !info
         if (body === "!info" && isAdmin) {
-            reply(
-                `📌 Nombre: ${metadata.subject}\n👥 Participantes: ${metadata.participants.length}`,
-            );
+            reply(`📌 Nombre: ${metadata.subject}\n👥 Participantes: ${metadata.participants.length}`);
         }
 
-        // !expulsar @usuario (solo admin)
         if (body.startsWith("!ban") && isAdmin) {
             const mentioned =
                 msg.message.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -131,9 +135,7 @@ async function startBot() {
             }
 
             const target = mentioned[0];
-            const targetInfo = metadata.participants.find(
-                (p) => p.id === target,
-            );
+            const targetInfo = metadata.participants.find((p) => p.id === target);
 
             if (!targetInfo) {
                 reply("❌ Usuario no encontrado en el grupo.");
@@ -154,34 +156,29 @@ async function startBot() {
             }
         }
 
-        // !link
         if (body === "!link" && isAdmin) {
             const code = await sock.groupInviteCode(from);
             reply(`🔗 Enlace del grupo: https://chat.whatsapp.com/${code}`);
         }
 
-        client.on("message", async (msg) => {
-            if (!msg.body.startsWith(".n(") || !msg.body.endsWith(")")) return;
+        if (body.startsWith(".n ") && isAdmin) {
+            const text = body.slice(3).trim();
+            const mentions = metadata.participants.map((p) => p.id);
 
-            const messageText = msg.body.slice(3, -1).trim();
-
-            if (msg.isGroupMsg) {
-                const chat = await msg.getChat();
-                if (!chat.isGroup) return;
-
-                // Obtener todos los participantes del grupo
-                const mentions = chat.participants.map(
-                    (participant) => participant.id._serialized,
-                );
-
-                // Enviar el mensaje con menciones ocultas
-                await chat.sendMessage(messageText, {
+            await sock.sendMessage(
+                from,
+                {
+                    text: `📢 ${text}`,
                     mentions: mentions,
-                });
-            }
-        });
+                },
+                { quoted: msg }
+            );
 
-        // !adminson
+            await sock.sendMessage(from, {
+                delete: msg.key,
+            });
+        }
+
         if (body === "!adminson") {
             const admins = metadata.participants.filter((p) => p.admin);
             const list = admins.map((a) => `@${a.id.split("@")[0]}`).join("\n");
@@ -191,21 +188,8 @@ async function startBot() {
             });
         }
     });
-
-    sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === "close") {
-            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            if (reason === DisconnectReason.loggedOut) {
-                console.log("🔴 Sesión cerrada. Escanea de nuevo.");
-                startBot(); // Reinicia
-            } else {
-                console.log("⚠️ Desconectado. Reconectando...");
-                startBot();
-            }
-        }
-    });
 }
+
 const http = require("http");
 http.createServer((req, res) => res.end("Bot activo")).listen(3000);
 
